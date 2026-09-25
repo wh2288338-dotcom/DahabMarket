@@ -1,4 +1,4 @@
-name: Build Dahab Market APK
+name: Build Dahab Market Release APK
 
 on:
   push:
@@ -29,25 +29,51 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Create Gradle fix for Kotlin
-        run: |
-          cat > kotlin-fix.gradle <<'EOF'
-          allprojects {
-              configurations.configureEach {
-                  resolutionStrategy.dependencySubstitution {
-                      substitute module('org.jetbrains.kotlin:kotlin-stdlib-jdk7') using module('org.jetbrains.kotlin:kotlin-stdlib:1.8.22')
-                      substitute module('org.jetbrains.kotlin:kotlin-stdlib-jdk8') using module('org.jetbrains.kotlin:kotlin-stdlib:1.8.22')
-                  }
-              }
-          }
-          EOF
-
-      - name: Build APK
+      - name: Build Release APK
         working-directory: project
-        run: gradle --init-script ../kotlin-fix.gradle assembleDebug --refresh-dependencies
+        run: gradle assembleRelease
 
-      - name: Upload APK
+      - name: Find Android SDK Build Tools
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          ls "$ANDROID_HOME/build-tools"
+
+      - name: Create signing key
+        run: |
+          keytool -genkeypair \
+            -v \
+            -keystore release.keystore \
+            -alias dahabmarket \
+            -keyalg RSA \
+            -keysize 2048 \
+            -validity 10000 \
+            -storepass dahabmarket123 \
+            -keypass dahabmarket123 \
+            -dname "CN=Dahab Market, OU=Android, O=Dahab Market, L=Cairo, ST=Cairo, C=EG"
+
+      - name: Sign APK
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+
+          "$BUILD_TOOLS/zipalign" \
+            -v 4 \
+            project/app/build/outputs/apk/release/app-release-unsigned.apk \
+            app-release-aligned.apk
+
+          "$BUILD_TOOLS/apksigner" sign \
+            --ks release.keystore \
+            --ks-pass pass:dahabmarket123 \
+            --key-pass pass:dahabmarket123 \
+            --out Dahab-Market-release.apk \
+            app-release-aligned.apk
+
+      - name: Verify APK
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$BUILD_TOOLS/apksigner" verify --verbose Dahab-Market-release.apk
+
+      - name: Upload Release APK
         uses: actions/upload-artifact@v4
         with:
-          name: Dahab-Market-APK
-          path: project/app/build/outputs/apk/debug/app-debug.apk
+          name: Dahab-Market-Release-APK
+          path: Dahab-Market-release.apk
